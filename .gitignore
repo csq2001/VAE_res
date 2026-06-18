@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual Environment
+.venv/
+venv/
+
+# PyTorch
+*.pth
+
+# VSCode
+.vscode/
+
+# Outputs
+outputs/
+
+# Logs
+*.log
