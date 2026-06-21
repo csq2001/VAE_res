@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export KMP_DUPLICATE_LIB_OK="${KMP_DUPLICATE_LIB_OK:-TRUE}"
+export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
+
+export VAE_DATA_ROOT="${VAE_DATA_ROOT:-data}"
+export VAE_EPOCHS="${VAE_EPOCHS:-50}"
+export VAE_BATCH_SIZE="${VAE_BATCH_SIZE:-16}"
+export VAE_PATCH_SIZE="${VAE_PATCH_SIZE:-256}"
+export VAE_LR="${VAE_LR:-1e-4}"
+export VAE_TAU="${VAE_TAU:-2}"
+export VAE_LAMBDA_DISTORTION="${VAE_LAMBDA_DISTORTION:-20.0}"
+export VAE_LAMBDA_L1="${VAE_LAMBDA_L1:-2.0}"
+export VAE_LAMBDA_MS_SSIM="${VAE_LAMBDA_MS_SSIM:-1.0}"
+export VAE_BETA_RESIDUAL="${VAE_BETA_RESIDUAL:-0.5}"
+export VAE_LATENT_CHANNELS="${VAE_LATENT_CHANNELS:-64}"
+export VAE_LATENT_QUANT_STEP="${VAE_LATENT_QUANT_STEP:-1.0}"
+export VAE_BASE_CHANNELS="${VAE_BASE_CHANNELS:-64}"
+export VAE_RESIDUAL_CONDITION_CHANNELS="${VAE_RESIDUAL_CONDITION_CHANNELS:-16}"
+export VAE_RESIDUAL_EXTRA_BLOCKS="${VAE_RESIDUAL_EXTRA_BLOCKS:-1}"
+export VAE_MAX_Q="${VAE_MAX_Q:-64}"
+export VAE_NUM_WORKERS="${VAE_NUM_WORKERS:-2}"
+export VAE_SEED="${VAE_SEED:-42}"
+export VAE_CHECKPOINT="${VAE_CHECKPOINT:-outputs/checkpoints/best.pth}"
+export VAE_CONDA_ENV="${VAE_CONDA_ENV:-vae_res}"
+export VAE_LOG_INTERVAL="${VAE_LOG_INTERVAL:-20}"
+export VAE_SAVE_METRIC="${VAE_SAVE_METRIC:-lossy_psnr}"
+
+mkdir -p logs outputs/checkpoints
+timestamp="$(date +%Y%m%d_%H%M%S)"
+log_file="logs/train_${timestamp}.log"
+
+echo "Writing log to ${log_file}"
+conda run --no-capture-output -n "${VAE_CONDA_ENV}" python -u train.py 2>&1 | tee "${log_file}"
