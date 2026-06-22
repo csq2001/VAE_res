@@ -36,7 +36,15 @@ test:  110
 ## Train
 
 ```bash
-python train.py --epochs 50 --batch-size 8 --patch-size 256 --tau 2
+python train.py --strategy staged --stage1-epochs 10 --stage2-epochs 10 --stage3-epochs 10 --batch-size 16 --patch-size 256 --tau 2
+```
+
+The default training strategy is staged:
+
+```text
+Stage 1: train VAE reconstruction quality for 10 epochs, save outputs/checkpoints/checkpoint_stage1.pth
+Stage 2: freeze VAE encoder/decoder and train residual entropy model for 10 epochs, save outputs/checkpoints/checkpoint_stage2.pth
+Stage 3: joint fine-tuning with a smaller learning rate for 10 epochs, save outputs/checkpoints/best.pth
 ```
 
 The scripts below centralize environment-variable configuration and save a live timestamped log under `logs/`.
@@ -63,6 +71,11 @@ Common environment variables:
 
 ```text
 VAE_EPOCHS=50
+VAE_TRAIN_STRATEGY=staged
+VAE_STAGE1_EPOCHS=10
+VAE_STAGE2_EPOCHS=10
+VAE_STAGE3_EPOCHS=10
+VAE_STAGE3_LR_FACTOR=0.02
 VAE_BATCH_SIZE=16
 VAE_PATCH_SIZE=256
 VAE_TAU=2
@@ -72,7 +85,10 @@ VAE_LATENT_QUANT_STEP=1.0
 VAE_LAMBDA_DISTORTION=20.0
 VAE_LAMBDA_L1=2.0
 VAE_LAMBDA_MS_SSIM=1.0
+VAE_STAGE1_LATENT_WEIGHT=0.05
 VAE_CHECKPOINT=outputs/checkpoints/best.pth
+VAE_STAGE1_CHECKPOINT=outputs/checkpoints/checkpoint_stage1.pth
+VAE_STAGE2_CHECKPOINT=outputs/checkpoints/checkpoint_stage2.pth
 VAE_LOG_INTERVAL=20
 VAE_RESIDUAL_CONDITION_CHANNELS=16
 VAE_RESIDUAL_EXTRA_BLOCKS=1
@@ -93,7 +109,7 @@ python test.py --checkpoint outputs/checkpoints/best.pth --tau 2
 python test.py --checkpoint outputs/checkpoints/best.pth --tau 2 --export-dna
 ```
 
-The learned entropy model is used during training to optimize the residual bitrate. The current exported payload uses compressed tensor packing as a runnable baseline; the `pack_tensors` boundary is where arithmetic coding or rANS can be added later using the model probabilities.
+The learned entropy model is used during training to optimize the residual bitrate. Exported DNA streams use the current baseline payload path: quantized tensors are packed into compressed NPZ bytes, compressed again with zlib, and then mapped to constrained DNA sequences.
 
 ## Visual Viewer
 

@@ -48,6 +48,17 @@ def tensor_to_data_url(tensor: torch.Tensor) -> str:
     return f"data:image/png;base64,{encoded}"
 
 
+def signed_tensor_to_data_url(tensor: torch.Tensor, scale: float = 64.0) -> str:
+    tensor = tensor.detach().cpu()[0].squeeze(0)
+    visual = (tensor / scale + 0.5).clamp(0.0, 1.0)
+    array = (visual.numpy() * 255.0).round().astype("uint8")
+    image = Image.fromarray(array, mode="L")
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
 def resolve_under(root: Path, relative: str) -> Path:
     target = (root / relative).resolve()
     if root.resolve() not in target.parents and target != root.resolve():
@@ -115,6 +126,8 @@ def evaluate(params):
         out = model(x, tau=tau)
         latent_bpp = bits_per_pixel(out.latent_bits, x)
         residual_bpp = bits_per_pixel(out.residual_bits, x)
+        total_bpp = latent_bpp + residual_bpp
+        residual_reconstruction = torch.round(out.q) * (2 * tau + 1)
         return {
             "device": str(device),
             "image": image_rel,
@@ -126,11 +139,13 @@ def evaluate(params):
                 "max_error": max_abs_error_pixels(x, out.x_hat),
                 "latent_bpp": latent_bpp,
                 "residual_bpp": residual_bpp,
-                "total_bpp": latent_bpp + residual_bpp,
+                "total_bpp": total_bpp,
+                "compression_percent": total_bpp / 8.0 * 100.0,
             },
             "images": {
                 "input": tensor_to_data_url(x),
                 "lossy": tensor_to_data_url(out.x_tilde),
+                "residual": signed_tensor_to_data_url(residual_reconstruction),
                 "reconstruction": tensor_to_data_url(out.x_hat),
             },
         }
@@ -163,7 +178,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Local viewer for VAE residual codec checkpoints.")
+    parser = argparse.ArgumentParser(description="Local viewer for VAE residual encoding checkpoints.")
     parser.add_argument("--host", default=os.getenv("VAE_VIEWER_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.getenv("VAE_VIEWER_PORT", "8000")))
     args = parser.parse_args()

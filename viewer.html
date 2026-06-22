@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>VAE Residual DNA Codec Viewer</title>
+  <title>VAE Residual DNA Encoding Viewer</title>
   <style>
     :root {
       color-scheme: light;
@@ -65,7 +65,7 @@
     button:disabled { opacity: .6; cursor: wait; }
     .metrics {
       display: grid;
-      grid-template-columns: repeat(6, minmax(110px, 1fr));
+      grid-template-columns: repeat(7, minmax(110px, 1fr));
       gap: 10px;
       margin: 14px 0 18px;
     }
@@ -84,7 +84,7 @@
     .metric strong { font-size: 18px; }
     .grid {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 14px;
     }
     .image-panel {
@@ -128,7 +128,7 @@
 </head>
 <body>
   <header>
-    <h1>VAE Residual DNA Codec Viewer</h1>
+    <h1>VAE Residual DNA Encoding Viewer</h1>
   </header>
   <main>
     <div class="toolbar">
@@ -151,6 +151,7 @@
       <div class="metric"><span>Total bpp</span><strong id="bpp">-</strong></div>
       <div class="metric"><span>Latent bpp</span><strong id="latent">-</strong></div>
       <div class="metric"><span>Residual bpp</span><strong id="residual">-</strong></div>
+      <div class="metric"><span>Compression</span><strong id="compression">-</strong></div>
     </section>
     <section class="grid">
       <article class="image-panel">
@@ -160,6 +161,10 @@
       <article class="image-panel">
         <h2>Lossy Approximation</h2>
         <div class="image-wrap"><img id="lossy" alt=""></div>
+      </article>
+      <article class="image-panel">
+        <h2>Residual Reconstruction</h2>
+        <div class="image-wrap"><img id="residual-image" alt=""></div>
       </article>
       <article class="image-panel">
         <h2>Near-lossless Reconstruction</h2>
@@ -207,8 +212,10 @@
         document.getElementById("bpp").textContent = data.metrics.total_bpp.toFixed(4);
         document.getElementById("latent").textContent = data.metrics.latent_bpp.toFixed(4);
         document.getElementById("residual").textContent = data.metrics.residual_bpp.toFixed(4);
+        document.getElementById("compression").textContent = `${data.metrics.compression_percent.toFixed(2)}%`;
         document.getElementById("input").src = data.images.input;
         document.getElementById("lossy").src = data.images.lossy;
+        document.getElementById("residual-image").src = data.images.residual;
         document.getElementById("recon").src = data.images.reconstruction;
         setStatus(`Done on ${data.device}.`, "ok");
       } catch (error) {

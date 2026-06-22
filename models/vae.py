@@ -82,16 +82,16 @@ class VaeResidualCodec(nn.Module):
             extra_blocks=residual_extra_blocks,
         )
 
-    def quantize_latent(self, y: torch.Tensor) -> torch.Tensor:
+    def quantize_latent(self, y: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
         step = self.latent_quant_step
-        if self.training:
+        if self.training and not deterministic:
             noise = torch.empty_like(y).uniform_(-0.5 * step, 0.5 * step)
             return y + noise
         return torch.round(y / step) * step
 
-    def forward(self, x: torch.Tensor, tau: int = 2) -> CodecOutput:
+    def forward(self, x: torch.Tensor, tau: int = 2, deterministic: bool = False) -> CodecOutput:
         y = self.encoder(x)
-        y_hat = self.quantize_latent(y)
+        y_hat = self.quantize_latent(y, deterministic=deterministic)
         x_tilde = self.decoder(y_hat)
         if x_tilde.shape[-2:] != x.shape[-2:]:
             x_tilde = F.interpolate(x_tilde, size=x.shape[-2:], mode="bilinear", align_corners=False)
