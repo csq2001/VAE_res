@@ -1,6 +1,8 @@
 import argparse
 import os
+import shutil
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
@@ -43,7 +45,7 @@ def parse_args():
     parser.add_argument("--data-root", default=os.getenv("VAE_DATA_ROOT", "data"))
     parser.add_argument("--strategy", choices=["staged", "joint"], default=os.getenv("VAE_TRAIN_STRATEGY", "staged"))
     parser.add_argument("--epochs", type=int, default=int(os.getenv("VAE_EPOCHS", "50")))
-    parser.add_argument("--stage1-epochs", type=int, default=int(os.getenv("VAE_STAGE1_EPOCHS", "10")))
+    parser.add_argument("--stage1-epochs", type=int, default=int(os.getenv("VAE_STAGE1_EPOCHS", "5")))
     parser.add_argument("--stage2-epochs", type=int, default=int(os.getenv("VAE_STAGE2_EPOCHS", "5")))
     parser.add_argument("--stage3-epochs", type=int, default=int(os.getenv("VAE_STAGE3_EPOCHS", "5")))
     parser.add_argument("--stage3-lr-factor", type=float, default=float(os.getenv("VAE_STAGE3_LR_FACTOR", "0.02")))
@@ -56,6 +58,7 @@ def parse_args():
     parser.add_argument("--lambda-ms-ssim", type=float, default=float(os.getenv("VAE_LAMBDA_MS_SSIM", "1.0")))
     parser.add_argument("--stage1-latent-weight", type=float, default=float(os.getenv("VAE_STAGE1_LATENT_WEIGHT", "0.05")))
     parser.add_argument("--beta-residual", type=float, default=float(os.getenv("VAE_BETA_RESIDUAL", "0.5")))
+    parser.add_argument("--channels", type=int, default=int(os.getenv("VAE_CHANNELS", "3")))
     parser.add_argument("--latent-channels", type=int, default=int(os.getenv("VAE_LATENT_CHANNELS", "64")))
     parser.add_argument("--latent-quant-step", type=float, default=float(os.getenv("VAE_LATENT_QUANT_STEP", "1.0")))
     parser.add_argument("--base-channels", type=int, default=int(os.getenv("VAE_BASE_CHANNELS", "64")))
@@ -73,7 +76,7 @@ def parse_args():
 
 
 def make_loader(root, split, args, training):
-    dataset = CTImageDataset(Path(root) / split, patch_size=args.patch_size, training=training, channels=1)
+    dataset = CTImageDataset(Path(root) / split, patch_size=args.patch_size, training=training, channels=args.channels)
     return DataLoader(
         dataset,
         batch_size=args.batch_size,
@@ -85,6 +88,7 @@ def make_loader(root, split, args, training):
 
 def make_model(args, device):
     return VaeResidualCodec(
+        in_channels=args.channels,
         latent_channels=args.latent_channels,
         base_channels=args.base_channels,
         latent_quant_step=args.latent_quant_step,
@@ -261,6 +265,19 @@ def train_stage(model, train_loader, val_loader, device, args, stage, epochs, lr
     print(f"loaded best stage checkpoint {checkpoint_path}", flush=True)
 
 
+def save_timestamped_checkpoint(checkpoint_path):
+    checkpoint_path = Path(checkpoint_path)
+    if not checkpoint_path.exists():
+        print(f"skip timestamped checkpoint: {checkpoint_path} does not exist", flush=True)
+        return None
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamped_path = checkpoint_path.with_name(f"{checkpoint_path.stem}_{timestamp}{checkpoint_path.suffix}")
+    timestamped_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(checkpoint_path, timestamped_path)
+    print(f"saved timestamped checkpoint {timestamped_path}", flush=True)
+    return timestamped_path
+
+
 def print_config(args, device):
     print(f"device={device} cuda_available={torch.cuda.is_available()}", flush=True)
     if device.type == "cuda":
@@ -269,6 +286,7 @@ def print_config(args, device):
         f"config strategy={args.strategy} epochs={args.epochs} "
         f"stage1_epochs={args.stage1_epochs} stage2_epochs={args.stage2_epochs} stage3_epochs={args.stage3_epochs} "
         f"batch_size={args.batch_size} patch_size={args.patch_size} lr={args.lr} tau={args.tau} "
+        f"channels={args.channels} "
         f"lambda_distortion={args.lambda_distortion} lambda_l1={args.lambda_l1} "
         f"lambda_ms_ssim={args.lambda_ms_ssim} beta_residual={args.beta_residual} "
         f"save_metric={args.save_metric}",
@@ -288,6 +306,7 @@ def main():
 
     if args.strategy == "joint":
         train_stage(model, train_loader, val_loader, device, args, "joint", args.epochs, args.lr, args.checkpoint)
+        save_timestamped_checkpoint(args.checkpoint)
         return
 
     train_stage(model, train_loader, val_loader, device, args, "stage1", args.stage1_epochs, args.lr, args.stage1_checkpoint)
@@ -303,6 +322,7 @@ def main():
         args.lr * args.stage3_lr_factor,
         args.checkpoint,
     )
+    save_timestamped_checkpoint(args.checkpoint)
 
 
 if __name__ == "__main__":

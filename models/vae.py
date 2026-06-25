@@ -61,6 +61,7 @@ class VaeResidualCodec(nn.Module):
         latent_quant_step: float = 1.0,
     ) -> None:
         super().__init__()
+        self.in_channels = in_channels
         self.latent_quant_step = latent_quant_step
         self.encoder = ImageEncoder(in_channels, latent_channels, base_channels)
         self.decoder = ImageDecoder(in_channels, latent_channels, base_channels)

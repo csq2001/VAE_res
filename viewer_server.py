@@ -32,16 +32,20 @@ def json_response(handler, payload, status=200):
     handler.wfile.write(data)
 
 
-def image_to_tensor(path: Path) -> torch.Tensor:
-    image = Image.open(path).convert("L")
-    dataset = CTImageDataset(path.parent, patch_size=None, training=False, channels=1)
+def image_to_tensor(path: Path, channels: int) -> torch.Tensor:
+    image = Image.open(path).convert("L" if channels == 1 else "RGB")
+    dataset = CTImageDataset(path.parent, patch_size=None, training=False, channels=channels)
     return dataset._to_tensor(image).unsqueeze(0)
 
 
 def tensor_to_data_url(tensor: torch.Tensor) -> str:
     tensor = tensor.detach().cpu().clamp(0.0, 1.0)[0]
-    array = (tensor.squeeze(0).numpy() * 255.0).round().astype("uint8")
-    image = Image.fromarray(array, mode="L")
+    if tensor.shape[0] == 1:
+        array = (tensor.squeeze(0).numpy() * 255.0).round().astype("uint8")
+        image = Image.fromarray(array, mode="L")
+    else:
+        array = (tensor.permute(1, 2, 0).numpy() * 255.0).round().astype("uint8")
+        image = Image.fromarray(array, mode="RGB")
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
@@ -49,10 +53,14 @@ def tensor_to_data_url(tensor: torch.Tensor) -> str:
 
 
 def signed_tensor_to_data_url(tensor: torch.Tensor, scale: float = 64.0) -> str:
-    tensor = tensor.detach().cpu()[0].squeeze(0)
+    tensor = tensor.detach().cpu()[0]
     visual = (tensor / scale + 0.5).clamp(0.0, 1.0)
-    array = (visual.numpy() * 255.0).round().astype("uint8")
-    image = Image.fromarray(array, mode="L")
+    if visual.shape[0] == 1:
+        array = (visual.squeeze(0).numpy() * 255.0).round().astype("uint8")
+        image = Image.fromarray(array, mode="L")
+    else:
+        array = (visual.permute(1, 2, 0).numpy() * 255.0).round().astype("uint8")
+        image = Image.fromarray(array, mode="RGB")
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
@@ -91,11 +99,13 @@ def model_from_checkpoint(path: Path, device: torch.device) -> VaeResidualCodec:
     checkpoint = torch.load(path, map_location=device)
     args = checkpoint.get("args", {})
     state = checkpoint["model"]
+    channels = int(args.get("channels", state.get("encoder.net.0.weight", torch.empty(0, int(os.getenv("VAE_CHANNELS", 3)))).shape[1]))
     legacy_condition = "residual_condition.0.weight" not in state
     if "prior.loc" not in state:
         latent_channels = int(args.get("latent_channels", os.getenv("VAE_LATENT_CHANNELS", 64)))
         state["prior.loc"] = torch.zeros(latent_channels)
     model = VaeResidualCodec(
+        in_channels=channels,
         latent_channels=int(args.get("latent_channels", os.getenv("VAE_LATENT_CHANNELS", 64))),
         base_channels=int(args.get("base_channels", os.getenv("VAE_BASE_CHANNELS", 64))),
         latent_quant_step=float(args.get("latent_quant_step", os.getenv("VAE_LATENT_QUANT_STEP", 1.0))),
@@ -121,7 +131,7 @@ def evaluate(params):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model_from_checkpoint(checkpoint_path, device)
-    x = image_to_tensor(image_path).to(device)
+    x = image_to_tensor(image_path, model.in_channels).to(device)
     with torch.no_grad():
         out = model(x, tau=tau)
         latent_bpp = bits_per_pixel(out.latent_bits, x)
@@ -140,7 +150,7 @@ def evaluate(params):
                 "latent_bpp": latent_bpp,
                 "residual_bpp": residual_bpp,
                 "total_bpp": total_bpp,
-                "compression_percent": total_bpp / 8.0 * 100.0,
+                "compression_percent": total_bpp / (8.0 * x.shape[1]) * 100.0,
             },
             "images": {
                 "input": tensor_to_data_url(x),

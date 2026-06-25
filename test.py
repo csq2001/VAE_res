@@ -19,6 +19,7 @@ def parse_args():
     parser.add_argument("--split", default=os.getenv("VAE_SPLIT", "test"))
     parser.add_argument("--checkpoint", default=os.getenv("VAE_CHECKPOINT", "outputs/checkpoints/best.pth"))
     parser.add_argument("--tau", type=int, default=int(os.getenv("VAE_TAU", "2")))
+    parser.add_argument("--channels", type=int, default=int(os.getenv("VAE_CHANNELS", "3")))
     parser.add_argument("--latent-channels", type=int, default=int(os.getenv("VAE_LATENT_CHANNELS", "64")))
     parser.add_argument("--base-channels", type=int, default=int(os.getenv("VAE_BASE_CHANNELS", "64")))
     parser.add_argument("--max-q", type=int, default=int(os.getenv("VAE_MAX_Q", "64")))
@@ -31,16 +32,18 @@ def main():
     args = parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"device={device} cuda_available={torch.cuda.is_available()}")
-    dataset = CTImageDataset(Path(args.data_root) / args.split, patch_size=None, training=False, channels=1)
-    loader = DataLoader(dataset, batch_size=1, shuffle=False)
     checkpoint = torch.load(args.checkpoint, map_location=device)
     ckpt_args = checkpoint.get("args", {})
     state = checkpoint["model"]
+    channels = int(ckpt_args.get("channels", state.get("encoder.net.0.weight", torch.empty(0, args.channels)).shape[1]))
+    dataset = CTImageDataset(Path(args.data_root) / args.split, patch_size=None, training=False, channels=channels)
+    loader = DataLoader(dataset, batch_size=1, shuffle=False)
     legacy_condition = "residual_condition.0.weight" not in state
     if "prior.loc" not in state:
         latent_channels = int(ckpt_args.get("latent_channels", args.latent_channels))
         state["prior.loc"] = torch.zeros(latent_channels)
     model = VaeResidualCodec(
+        in_channels=channels,
         latent_channels=int(ckpt_args.get("latent_channels", args.latent_channels)),
         base_channels=int(ckpt_args.get("base_channels", args.base_channels)),
         latent_quant_step=float(ckpt_args.get("latent_quant_step", 1.0)),
