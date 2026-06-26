@@ -45,14 +45,14 @@ def parse_args():
     parser.add_argument("--data-root", default=os.getenv("VAE_DATA_ROOT", "data"))
     parser.add_argument("--strategy", choices=["staged", "joint"], default=os.getenv("VAE_TRAIN_STRATEGY", "staged"))
     parser.add_argument("--epochs", type=int, default=int(os.getenv("VAE_EPOCHS", "50")))
-    parser.add_argument("--stage1-epochs", type=int, default=int(os.getenv("VAE_STAGE1_EPOCHS", "5")))
-    parser.add_argument("--stage2-epochs", type=int, default=int(os.getenv("VAE_STAGE2_EPOCHS", "5")))
-    parser.add_argument("--stage3-epochs", type=int, default=int(os.getenv("VAE_STAGE3_EPOCHS", "5")))
+    parser.add_argument("--stage1-epochs", type=int, default=int(os.getenv("VAE_STAGE1_EPOCHS", "0")))
+    parser.add_argument("--stage2-epochs", type=int, default=int(os.getenv("VAE_STAGE2_EPOCHS", "30")))
+    parser.add_argument("--stage3-epochs", type=int, default=int(os.getenv("VAE_STAGE3_EPOCHS", "0")))
     parser.add_argument("--stage3-lr-factor", type=float, default=float(os.getenv("VAE_STAGE3_LR_FACTOR", "0.02")))
     parser.add_argument("--batch-size", type=int, default=int(os.getenv("VAE_BATCH_SIZE", "16")))
     parser.add_argument("--patch-size", type=int, default=int(os.getenv("VAE_PATCH_SIZE", "256")))
     parser.add_argument("--lr", type=float, default=float(os.getenv("VAE_LR", "1e-4")))
-    parser.add_argument("--tau", type=int, default=int(os.getenv("VAE_TAU", "2")))
+    parser.add_argument("--tau", type=int, default=int(os.getenv("VAE_TAU", "5")))
     parser.add_argument("--lambda-distortion", type=float, default=float(os.getenv("VAE_LAMBDA_DISTORTION", "20.0")))
     parser.add_argument("--lambda-l1", type=float, default=float(os.getenv("VAE_LAMBDA_L1", "2.0")))
     parser.add_argument("--lambda-ms-ssim", type=float, default=float(os.getenv("VAE_LAMBDA_MS_SSIM", "1.0")))
@@ -71,6 +71,7 @@ def parse_args():
     parser.add_argument("--checkpoint", default=os.getenv("VAE_CHECKPOINT", "outputs/checkpoints/best.pth"))
     parser.add_argument("--stage1-checkpoint", default=os.getenv("VAE_STAGE1_CHECKPOINT", "outputs/checkpoints/checkpoint_stage1.pth"))
     parser.add_argument("--stage2-checkpoint", default=os.getenv("VAE_STAGE2_CHECKPOINT", "outputs/checkpoints/checkpoint_stage2.pth"))
+    parser.add_argument("--resume-stage1", default=os.getenv("VAE_RESUME_STAGE1", ""))
     parser.add_argument("--save-metric", choices=["bpp", "loss", "lossy_psnr"], default=os.getenv("VAE_SAVE_METRIC", "bpp"))
     return parser.parse_args()
 
@@ -230,7 +231,8 @@ def train_stage(model, train_loader, val_loader, device, args, stage, epochs, lr
     optimizer = make_optimizer(model, lr)
     metric_name = metric_name_for_stage(stage, args)
     best = initial_best(metric_name)
-    saved = False
+    checkpoint_exists = Path(checkpoint_path).exists()
+    saved = checkpoint_exists
 
     baseline = run_epoch(model, val_loader, optimizer, device, args, stage, 0, training=False)
     best = baseline[metric_name]
@@ -263,6 +265,17 @@ def train_stage(model, train_loader, val_loader, device, args, stage, epochs, lr
 
     load_checkpoint(checkpoint_path, model, map_location=device)
     print(f"loaded best stage checkpoint {checkpoint_path}", flush=True)
+
+
+def maybe_resume_stage1(model, args, device):
+    if not args.resume_stage1:
+        return
+    resume_path = Path(args.resume_stage1)
+    if not resume_path.exists():
+        print(f"resume stage1 skipped: {resume_path} does not exist", flush=True)
+        return
+    load_checkpoint(resume_path, model, map_location=device)
+    print(f"resumed stage1 from {resume_path}", flush=True)
 
 
 def save_timestamped_checkpoint(checkpoint_path):
@@ -303,6 +316,7 @@ def main():
     train_loader = make_loader(args.data_root, "train", args, training=True)
     val_loader = make_loader(args.data_root, "val", args, training=False)
     model = make_model(args, device)
+    maybe_resume_stage1(model, args, device)
 
     if args.strategy == "joint":
         train_stage(model, train_loader, val_loader, device, args, "joint", args.epochs, args.lr, args.checkpoint)
