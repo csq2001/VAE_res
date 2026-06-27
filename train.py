@@ -45,10 +45,10 @@ def parse_args():
     parser.add_argument("--data-root", default=os.getenv("VAE_DATA_ROOT", "data"))
     parser.add_argument("--strategy", choices=["staged", "joint"], default=os.getenv("VAE_TRAIN_STRATEGY", "staged"))
     parser.add_argument("--epochs", type=int, default=int(os.getenv("VAE_EPOCHS", "50")))
-    parser.add_argument("--stage1-epochs", type=int, default=int(os.getenv("VAE_STAGE1_EPOCHS", "10")))
-    parser.add_argument("--stage2-epochs", type=int, default=int(os.getenv("VAE_STAGE2_EPOCHS", "10")))
-    parser.add_argument("--stage3-epochs", type=int, default=int(os.getenv("VAE_STAGE3_EPOCHS", "0")))
-    parser.add_argument("--stage3-lr-factor", type=float, default=float(os.getenv("VAE_STAGE3_LR_FACTOR", "0.02")))
+    parser.add_argument("--stage1-epochs", type=int, default=int(os.getenv("VAE_STAGE1_EPOCHS", "0")))
+    parser.add_argument("--stage2-epochs", type=int, default=int(os.getenv("VAE_STAGE2_EPOCHS", "25")))
+    parser.add_argument("--stage3-epochs", type=int, default=int(os.getenv("VAE_STAGE3_EPOCHS", "5")))
+    parser.add_argument("--stage3-lr-factor", type=float, default=float(os.getenv("VAE_STAGE3_LR_FACTOR", "0.05")))
     parser.add_argument("--batch-size", type=int, default=int(os.getenv("VAE_BATCH_SIZE", "16")))
     parser.add_argument("--patch-size", type=int, default=int(os.getenv("VAE_PATCH_SIZE", "256")))
     parser.add_argument("--lr", type=float, default=float(os.getenv("VAE_LR", "1e-4")))
@@ -64,6 +64,11 @@ def parse_args():
     parser.add_argument("--base-channels", type=int, default=int(os.getenv("VAE_BASE_CHANNELS", "64")))
     parser.add_argument("--residual-condition-channels", type=int, default=int(os.getenv("VAE_RESIDUAL_CONDITION_CHANNELS", "16")))
     parser.add_argument("--residual-extra-blocks", type=int, default=int(os.getenv("VAE_RESIDUAL_EXTRA_BLOCKS", "1")))
+    parser.add_argument(
+        "--checkerboard-context",
+        action=argparse.BooleanOptionalAction,
+        default=os.getenv("VAE_CHECKERBOARD_CONTEXT", "1").lower() not in {"0", "false", "no"},
+    )
     parser.add_argument("--max-q", type=int, default=int(os.getenv("VAE_MAX_Q", "64")))
     parser.add_argument("--num-workers", type=int, default=int(os.getenv("VAE_NUM_WORKERS", "2")))
     parser.add_argument("--seed", type=int, default=int(os.getenv("VAE_SEED", "42")))
@@ -96,6 +101,7 @@ def make_model(args, device):
         residual_condition_channels=args.residual_condition_channels,
         residual_extra_blocks=args.residual_extra_blocks,
         max_q=args.max_q,
+        checkerboard_context=args.checkerboard_context,
     ).to(device)
 
 
@@ -300,6 +306,7 @@ def print_config(args, device):
         f"stage1_epochs={args.stage1_epochs} stage2_epochs={args.stage2_epochs} stage3_epochs={args.stage3_epochs} "
         f"batch_size={args.batch_size} patch_size={args.patch_size} lr={args.lr} tau={args.tau} "
         f"channels={args.channels} "
+        f"checkerboard_context={args.checkerboard_context} "
         f"lambda_distortion={args.lambda_distortion} lambda_l1={args.lambda_l1} "
         f"lambda_ms_ssim={args.lambda_ms_ssim} beta_residual={args.beta_residual} "
         f"save_metric={args.save_metric}",

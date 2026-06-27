@@ -49,6 +49,9 @@ def main():
     dataset = CTImageDataset(Path(args.data_root) / args.split, patch_size=None, training=False, channels=channels)
     loader = DataLoader(dataset, batch_size=1, shuffle=False)
     legacy_condition = "residual_condition.0.weight" not in state
+    checkerboard_context = any(
+        key.startswith("residual_entropy.context_net.") for key in state
+    )
     if "prior.loc" not in state:
         latent_channels = int(ckpt_args.get("latent_channels", args.latent_channels))
         state["prior.loc"] = torch.zeros(latent_channels)
@@ -60,6 +63,7 @@ def main():
         residual_condition_channels=0 if legacy_condition else int(ckpt_args.get("residual_condition_channels", 16)),
         residual_extra_blocks=0 if legacy_condition else int(ckpt_args.get("residual_extra_blocks", 1)),
         max_q=int(ckpt_args.get("max_q", args.max_q)),
+        checkerboard_context=checkerboard_context,
     ).to(device)
     model.load_state_dict(state)
     model.eval()
@@ -100,6 +104,7 @@ def main():
                         residual_logits=out.residual_logits.cpu() if residual_codec == "rans" else None,
                         max_q=model.residual_entropy.max_q,
                         rans_precision=args.rans_precision,
+                        checkerboard_context=model.residual_entropy.checkerboard_context,
                     )
                     decoded_y, decoded_q, _ = unpack_tensors(payload)
                     if not torch.equal(torch.round(out.y_hat.cpu()), decoded_y):

@@ -3,6 +3,7 @@ import base64
 import io
 import json
 import os
+import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -22,6 +23,15 @@ ROOT = Path(__file__).resolve().parent
 DATA_ROOT = ROOT / "data"
 CHECKPOINT_ROOT = ROOT / "outputs" / "checkpoints"
 VIEWER_HTML = ROOT / "viewer.html"
+
+
+class ExclusiveThreadingHTTPServer(ThreadingHTTPServer):
+    allow_reuse_address = False
+
+    def server_bind(self):
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
 def json_response(handler, payload, status=200):
@@ -102,6 +112,9 @@ def model_from_checkpoint(path: Path, device: torch.device) -> VaeResidualCodec:
     state = checkpoint["model"]
     channels = int(args.get("channels", state.get("encoder.net.0.weight", torch.empty(0, int(os.getenv("VAE_CHANNELS", 3)))).shape[1]))
     legacy_condition = "residual_condition.0.weight" not in state
+    checkerboard_context = any(
+        key.startswith("residual_entropy.context_net.") for key in state
+    )
     if "prior.loc" not in state:
         latent_channels = int(args.get("latent_channels", os.getenv("VAE_LATENT_CHANNELS", 64)))
         state["prior.loc"] = torch.zeros(latent_channels)
@@ -113,6 +126,7 @@ def model_from_checkpoint(path: Path, device: torch.device) -> VaeResidualCodec:
         residual_condition_channels=0 if legacy_condition else int(args.get("residual_condition_channels", os.getenv("VAE_RESIDUAL_CONDITION_CHANNELS", 16))),
         residual_extra_blocks=0 if legacy_condition else int(args.get("residual_extra_blocks", os.getenv("VAE_RESIDUAL_EXTRA_BLOCKS", 1))),
         max_q=int(args.get("max_q", os.getenv("VAE_MAX_Q", 64))),
+        checkerboard_context=checkerboard_context,
     ).to(device)
     model.load_state_dict(state)
     model.eval()
@@ -159,6 +173,7 @@ def evaluate(params):
             residual_codec="rans",
             residual_logits=out.residual_logits.cpu(),
             max_q=model.residual_entropy.max_q,
+            checkerboard_context=model.residual_entropy.checkerboard_context,
         )
         decoded_y, decoded_q, rans_metadata = unpack_tensors(rans_payload)
         if not torch.equal(torch.round(y_hat), decoded_y):
@@ -238,7 +253,7 @@ def main():
     parser.add_argument("--host", default=os.getenv("VAE_VIEWER_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.getenv("VAE_VIEWER_PORT", "8000")))
     args = parser.parse_args()
-    server = ThreadingHTTPServer((args.host, args.port), ViewerHandler)
+    server = ExclusiveThreadingHTTPServer((args.host, args.port), ViewerHandler)
     print(f"Viewer running at http://{args.host}:{args.port}")
     server.serve_forever()
 

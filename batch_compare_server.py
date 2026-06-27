@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 import os
+import socket
 import threading
 import time
 from datetime import datetime
@@ -86,6 +87,15 @@ class BatchState:
 
 
 STATE = BatchState()
+
+
+class ExclusiveThreadingHTTPServer(ThreadingHTTPServer):
+    allow_reuse_address = False
+
+    def server_bind(self):
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
 def json_response(handler, payload, status=200):
@@ -216,6 +226,7 @@ def evaluate_image(model, device, split: str, path: Path, tau: int, index: int) 
         residual_codec="rans",
         residual_logits=out.residual_logits.cpu(),
         max_q=model.residual_entropy.max_q,
+        checkerboard_context=model.residual_entropy.checkerboard_context,
     )
     decoded_y, decoded_q, rans_metadata = unpack_tensors(rans_payload)
     roundtrip = torch.equal(torch.round(y_hat), decoded_y) and torch.equal(torch.round(q), decoded_q)
@@ -453,7 +464,7 @@ def main():
     parser.add_argument("--host", default=os.getenv("VAE_BATCH_VIEWER_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.getenv("VAE_BATCH_VIEWER_PORT", "8001")))
     args = parser.parse_args()
-    server = ThreadingHTTPServer((args.host, args.port), BatchCompareHandler)
+    server = ExclusiveThreadingHTTPServer((args.host, args.port), BatchCompareHandler)
     print(f"Batch comparison viewer running at http://{args.host}:{args.port}", flush=True)
     server.serve_forever()
 

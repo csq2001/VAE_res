@@ -3,7 +3,8 @@
 This project trains a joint codec for CT images:
 
 1. A VAE produces a high-quality lossy approximation `x_tilde`.
-2. A learned residual entropy model estimates `p(q | x_tilde)` for the quantized residual.
+2. A checkerboard spatial-context entropy model estimates anchor symbols from
+   `x_tilde` and `y_hat`, then estimates non-anchor symbols from the decoded anchors.
 3. The latent tensor and residual symbols are packed and mapped to DNA bases for storage experiments.
 
 The near-lossless residual uses a maximum pixel error parameter `tau`:
@@ -36,15 +37,15 @@ test:  110
 ## Train
 
 ```bash
-python train.py --strategy staged --stage1-epochs 10 --stage2-epochs 10 --stage3-epochs 10 --batch-size 16 --patch-size 256 --tau 2
+python train.py --strategy staged --stage1-epochs 0 --stage2-epochs 25 --stage3-epochs 5 --batch-size 16 --patch-size 256 --tau 5
 ```
 
 The default training strategy is staged:
 
 ```text
 Stage 1: train VAE reconstruction quality for 10 epochs, save outputs/checkpoints/checkpoint_stage1.pth
-Stage 2: freeze VAE encoder/decoder and train residual entropy model for 10 epochs, save outputs/checkpoints/checkpoint_stage2.pth
-Stage 3: joint fine-tuning with a smaller learning rate for 10 epochs, save outputs/checkpoints/best.pth
+Stage 2: freeze VAE encoder/decoder and train the checkerboard residual entropy model for 10 epochs, save outputs/checkpoints/checkpoint_stage2.pth
+Stage 3: optional joint fine-tuning with a smaller learning rate, save outputs/checkpoints/best.pth
 ```
 
 The scripts below centralize environment-variable configuration and save a live timestamped log under `logs/`.
@@ -72,13 +73,13 @@ Common environment variables:
 ```text
 VAE_EPOCHS=50
 VAE_TRAIN_STRATEGY=staged
-VAE_STAGE1_EPOCHS=10
-VAE_STAGE2_EPOCHS=10
-VAE_STAGE3_EPOCHS=10
-VAE_STAGE3_LR_FACTOR=0.02
+VAE_STAGE1_EPOCHS=0
+VAE_STAGE2_EPOCHS=25
+VAE_STAGE3_EPOCHS=5
+VAE_STAGE3_LR_FACTOR=0.05
 VAE_BATCH_SIZE=16
 VAE_PATCH_SIZE=256
-VAE_TAU=2
+VAE_TAU=5
 VAE_LR=1e-4
 VAE_BETA_RESIDUAL=0.5
 VAE_LATENT_QUANT_STEP=1.0
@@ -92,6 +93,7 @@ VAE_STAGE2_CHECKPOINT=outputs/checkpoints/checkpoint_stage2.pth
 VAE_LOG_INTERVAL=20
 VAE_RESIDUAL_CONDITION_CHANNELS=16
 VAE_RESIDUAL_EXTRA_BLOCKS=1
+VAE_CHECKERBOARD_CONTEXT=1
 VAE_SAVE_METRIC=lossy_psnr
 ```
 
@@ -100,15 +102,15 @@ Training automatically uses CUDA when a GPU is available; otherwise it falls bac
 ## Evaluate
 
 ```bash
-python test.py --checkpoint outputs/checkpoints/best.pth --tau 2
+python test.py --checkpoint outputs/checkpoints/best.pth --tau 5
 ```
 
 ## Export Example DNA Streams
 
 ```bash
-python test.py --checkpoint outputs/checkpoints/best.pth --tau 2 --export-dna --residual-codec zlib
-python test.py --checkpoint outputs/checkpoints/best.pth --tau 2 --export-dna --residual-codec rans
-python test.py --checkpoint outputs/checkpoints/best.pth --tau 2 --export-dna --residual-codec both
+python test.py --checkpoint outputs/checkpoints/best.pth --tau 5 --export-dna --residual-codec zlib
+python test.py --checkpoint outputs/checkpoints/best.pth --tau 5 --export-dna --residual-codec rans
+python test.py --checkpoint outputs/checkpoints/best.pth --tau 5 --export-dna --residual-codec both
 ```
 
 The default `zlib` path remains backward compatible. The optional `rans` path builds
