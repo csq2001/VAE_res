@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from models import VaeResidualCodec
-from utils.bitstream import pack_tensors, payload_to_dna, write_dna_fasta
+from utils.bitstream import pack_tensors, payload_to_dna, unpack_tensors, write_dna_fasta
 from utils.dataset import CTImageDataset
 from utils.metrics import bits_per_pixel, max_abs_error_pixels, ms_ssim, psnr
 
@@ -24,6 +24,16 @@ def parse_args():
     parser.add_argument("--base-channels", type=int, default=int(os.getenv("VAE_BASE_CHANNELS", "64")))
     parser.add_argument("--max-q", type=int, default=int(os.getenv("VAE_MAX_Q", "64")))
     parser.add_argument("--export-dna", action="store_true")
+    parser.add_argument(
+        "--residual-codec",
+        choices=["zlib", "rans", "both"],
+        default=os.getenv("VAE_RESIDUAL_CODEC", "zlib"),
+    )
+    parser.add_argument(
+        "--rans-precision",
+        type=int,
+        default=int(os.getenv("VAE_RANS_PRECISION", "16")),
+    )
     parser.add_argument("--out-dir", default=os.getenv("VAE_DNA_OUT_DIR", "outputs/dna"))
     return parser.parse_args()
 
@@ -80,11 +90,32 @@ def main():
                     "width": int(x.shape[3]),
                     "channels": int(x.shape[1]),
                 }
-                payload = pack_tensors(out.y_hat.cpu(), out.q.cpu(), metadata)
-                packed = payload_to_dna(payload)
-                fasta = out_dir / f"{Path(names[0]).stem}.fasta"
-                write_dna_fasta(packed.dna, fasta)
-                print(f"exported {fasta} {packed.metadata}")
+                codecs = ["zlib", "rans"] if args.residual_codec == "both" else [args.residual_codec]
+                for residual_codec in codecs:
+                    payload = pack_tensors(
+                        out.y_hat.cpu(),
+                        out.q.cpu(),
+                        metadata,
+                        residual_codec=residual_codec,
+                        residual_logits=out.residual_logits.cpu() if residual_codec == "rans" else None,
+                        max_q=model.residual_entropy.max_q,
+                        rans_precision=args.rans_precision,
+                    )
+                    decoded_y, decoded_q, _ = unpack_tensors(payload)
+                    if not torch.equal(torch.round(out.y_hat.cpu()), decoded_y):
+                        raise RuntimeError(f"{residual_codec} latent round-trip verification failed")
+                    if not torch.equal(torch.round(out.q.cpu()), decoded_q):
+                        raise RuntimeError(f"{residual_codec} residual round-trip verification failed")
+
+                    packed = payload_to_dna(payload)
+                    stem = Path(names[0]).stem
+                    fasta = out_dir / f"{stem}_{residual_codec}.fasta"
+                    write_dna_fasta(packed.dna, fasta)
+                    actual_bpp = len(payload) * 8 / (int(x.shape[2]) * int(x.shape[3]))
+                    print(
+                        f"exported {fasta} codec={residual_codec} "
+                        f"payload_bpp={actual_bpp:.4f} {packed.metadata}"
+                    )
 
     n = len(loader)
     print(

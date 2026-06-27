@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>zlib / rANS Batch Comparison</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f6f8;
+      --panel: #ffffff;
+      --text: #17202a;
+      --muted: #657180;
+      --line: #d8dee6;
+      --accent: #1261a0;
+      --danger: #b42318;
+      --ok: #18794e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background: var(--bg);
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+    header {
+      padding: 18px 26px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+    h1 {
+      margin: 0;
+      font-size: 21px;
+      font-weight: 650;
+      letter-spacing: 0;
+    }
+    main { padding: 18px 26px 28px; }
+    .toolbar {
+      display: grid;
+      grid-template-columns: minmax(260px, 2fr) minmax(150px, .8fr) 90px 110px 110px 90px;
+      gap: 10px;
+      align-items: end;
+    }
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    select, input, button {
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px 10px;
+      background: #fff;
+      color: var(--text);
+      font: inherit;
+    }
+    button {
+      cursor: pointer;
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+    }
+    button.secondary {
+      border-color: var(--line);
+      background: #fff;
+      color: var(--text);
+    }
+    button.danger {
+      border-color: var(--danger);
+      background: var(--danger);
+    }
+    button:disabled { cursor: not-allowed; opacity: .55; }
+    .status-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      min-height: 24px;
+      margin: 15px 0 7px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .status-line .error { color: var(--danger); }
+    .status-line .ok { color: var(--ok); }
+    progress {
+      display: block;
+      width: 100%;
+      height: 12px;
+      margin-bottom: 15px;
+      accent-color: var(--accent);
+    }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(130px, 1fr));
+      gap: 9px;
+      margin-bottom: 16px;
+    }
+    .metric {
+      min-width: 0;
+      padding: 11px 12px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel);
+    }
+    .metric span {
+      display: block;
+      margin-bottom: 5px;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .metric strong {
+      display: block;
+      overflow: hidden;
+      font-size: 17px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .table-shell {
+      overflow: auto;
+      border: 1px solid var(--line);
+      background: var(--panel);
+    }
+    table {
+      width: 100%;
+      min-width: 1280px;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    th, td {
+      padding: 8px 9px;
+      border-bottom: 1px solid var(--line);
+      text-align: right;
+      white-space: nowrap;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #eef2f6;
+      color: #394553;
+      font-weight: 650;
+    }
+    th:nth-child(2), td:nth-child(2),
+    th:nth-child(3), td:nth-child(3) { text-align: left; }
+    tr:last-child td { border-bottom: 0; }
+    .failed { color: var(--danger); }
+    .pager {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .pager button {
+      min-height: 32px;
+      padding: 5px 12px;
+    }
+    @media (max-width: 1050px) {
+      .toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 600px) {
+      main, header { padding-left: 14px; padding-right: 14px; }
+      .toolbar, .metrics { grid-template-columns: 1fr; }
+      .status-line { display: block; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>zlib / rANS Batch Comparison</h1>
+  </header>
+  <main>
+    <div class="toolbar">
+      <label>Checkpoint
+        <select id="checkpoint"></select>
+      </label>
+      <label>Dataset
+        <select id="split">
+          <option value="all">All</option>
+          <option value="train">Train</option>
+          <option value="val">Validation</option>
+          <option value="test">Test</option>
+        </select>
+      </label>
+      <label>Tau
+        <input id="tau" type="number" min="0" max="16" value="5">
+      </label>
+      <label>Image Limit
+        <input id="limit" type="number" min="0" value="0">
+      </label>
+      <button id="start">Calculate</button>
+      <button id="cancel" class="danger" disabled>Stop</button>
+    </div>
+
+    <div class="status-line">
+      <span id="status">Loading...</span>
+      <span id="timing"></span>
+    </div>
+    <progress id="progress" value="0" max="1"></progress>
+
+    <section class="metrics">
+      <div class="metric"><span>Processed</span><strong id="processed">0 / 0</strong></div>
+      <div class="metric"><span>Estimated bpp</span><strong id="estimated-bpp">-</strong></div>
+      <div class="metric"><span>zlib Actual bpp</span><strong id="zlib-bpp">-</strong></div>
+      <div class="metric"><span>rANS Actual bpp</span><strong id="rans-bpp">-</strong></div>
+      <div class="metric"><span>rANS Residual bpp</span><strong id="rans-residual-bpp">-</strong></div>
+      <div class="metric"><span>zlib Size</span><strong id="zlib-size">-</strong></div>
+      <div class="metric"><span>rANS Size</span><strong id="rans-size">-</strong></div>
+      <div class="metric"><span>rANS Binary Saving</span><strong id="binary-saving">-</strong></div>
+      <div class="metric"><span>zlib DNA Length</span><strong id="zlib-dna">-</strong></div>
+      <div class="metric"><span>rANS DNA Length</span><strong id="rans-dna">-</strong></div>
+      <div class="metric"><span>rANS DNA Saving</span><strong id="dna-saving">-</strong></div>
+    </section>
+
+    <div class="table-shell">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Split</th>
+            <th>Image</th>
+            <th>Estimated bpp</th>
+            <th>zlib bpp</th>
+            <th>rANS bpp</th>
+            <th>rANS Residual bpp</th>
+            <th>zlib Size</th>
+            <th>rANS Size</th>
+            <th>Binary Saving</th>
+            <th>zlib DNA nt</th>
+            <th>rANS DNA nt</th>
+            <th>DNA Saving</th>
+            <th>Seconds</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="results"></tbody>
+      </table>
+    </div>
+    <div class="pager">
+      <span id="page-info">0 results</span>
+      <button id="previous" class="secondary" disabled>Previous</button>
+      <button id="next" class="secondary" disabled>Next</button>
+    </div>
+  </main>
+
+  <script>
+    const checkpoint = document.getElementById("checkpoint");
+    const split = document.getElementById("split");
+    const tau = document.getElementById("tau");
+    const limit = document.getElementById("limit");
+    const start = document.getElementById("start");
+    const cancel = document.getElementById("cancel");
+    const statusText = document.getElementById("status");
+    const timing = document.getElementById("timing");
+    const progress = document.getElementById("progress");
+    const resultsBody = document.getElementById("results");
+    const previous = document.getElementById("previous");
+    const next = document.getElementById("next");
+    const pageInfo = document.getElementById("page-info");
+    const pageSize = 100;
+    let counts = {};
+    let resultOffset = 0;
+    let pollTimer = null;
+
+    function number(value, digits = 4) {
+      return Number.isFinite(value) ? value.toFixed(digits) : "-";
+    }
+
+    function percent(value) {
+      if (!Number.isFinite(value)) return "-";
+      return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+    }
+
+    function duration(seconds) {
+      if (!Number.isFinite(seconds)) return "-";
+      const value = Math.max(0, Math.round(seconds));
+      const hours = Math.floor(value / 3600);
+      const minutes = Math.floor((value % 3600) / 60);
+      const secs = value % 60;
+      return hours ? `${hours}h ${minutes}m` : minutes ? `${minutes}m ${secs}s` : `${secs}s`;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function setSummary(summary = {}) {
+      document.getElementById("estimated-bpp").textContent = number(summary.estimated_bpp);
+      document.getElementById("zlib-bpp").textContent = number(summary.zlib_bpp);
+      document.getElementById("rans-bpp").textContent = number(summary.rans_bpp);
+      document.getElementById("rans-residual-bpp").textContent = number(summary.rans_residual_bpp);
+      document.getElementById("zlib-size").textContent =
+        Number.isFinite(summary.zlib_size_percent) ? `${summary.zlib_size_percent.toFixed(2)}%` : "-";
+      document.getElementById("rans-size").textContent =
+        Number.isFinite(summary.rans_size_percent) ? `${summary.rans_size_percent.toFixed(2)}%` : "-";
+      document.getElementById("binary-saving").textContent = percent(summary.rans_binary_saving_percent);
+      document.getElementById("zlib-dna").textContent =
+        Number.isFinite(summary.zlib_dna_nt) ? `${summary.zlib_dna_nt.toLocaleString()} nt` : "-";
+      document.getElementById("rans-dna").textContent =
+        Number.isFinite(summary.rans_dna_nt) ? `${summary.rans_dna_nt.toLocaleString()} nt` : "-";
+      document.getElementById("dna-saving").textContent = percent(summary.rans_dna_saving_percent);
+    }
+
+    async function loadConfig() {
+      const response = await fetch("/api/config");
+      const data = await response.json();
+      if (!response.ok || data.error) throw new Error(data.error || "Failed to load config");
+      counts = data.image_counts;
+      checkpoint.innerHTML = data.checkpoints
+        .map(path => `<option value="${escapeHtml(path)}">${escapeHtml(path)}</option>`)
+        .join("");
+      updateSplitLabels();
+      statusText.textContent = data.checkpoints.length ? "Ready." : "No checkpoint found.";
+      start.disabled = !data.checkpoints.length;
+    }
+
+    function updateSplitLabels() {
+      for (const option of split.options) {
+        const names = { all: "All", train: "Train", val: "Validation", test: "Test" };
+        option.textContent = `${names[option.value]} (${(counts[option.value] || 0).toLocaleString()})`;
+      }
+    }
+
+    async function startJob() {
+      start.disabled = true;
+      cancel.disabled = false;
+      resultOffset = 0;
+      resultsBody.innerHTML = "";
+      setSummary();
+      statusText.textContent = "Starting...";
+      const response = await fetch("/api/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          checkpoint: checkpoint.value,
+          split: split.value,
+          tau: Number(tau.value),
+          limit: Number(limit.value)
+        })
+      });
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        start.disabled = false;
+        cancel.disabled = true;
+        throw new Error(data.error || "Failed to start");
+      }
+      await refreshStatus();
+    }
+
+    async function cancelJob() {
+      cancel.disabled = true;
+      await fetch("/api/cancel", { method: "POST" });
+      statusText.textContent = "Stopping after the current image...";
+    }
+
+    async function refreshStatus() {
+      const response = await fetch("/api/status");
+      const data = await response.json();
+      if (!response.ok || data.error) throw new Error(data.error || "Status request failed");
+      const total = data.total || 0;
+      const completed = data.completed || 0;
+      progress.max = Math.max(total, 1);
+      progress.value = completed;
+      document.getElementById("processed").textContent =
+        `${completed.toLocaleString()} / ${total.toLocaleString()}`;
+      setSummary(data.summary);
+
+      const labels = {
+        idle: "Ready.",
+        running: data.current_image ? `Processing ${data.current_image}` : "Loading model...",
+        completed: `Completed. CSV: ${data.report_path}`,
+        cancelled: `Stopped. Partial CSV: ${data.report_path}`,
+        failed: data.error || "Job failed."
+      };
+      statusText.textContent = labels[data.status] || data.status;
+      statusText.className = data.status === "failed" ? "error" :
+        data.status === "completed" ? "ok" : "";
+      timing.textContent =
+        `Device ${data.device || "-"} · Elapsed ${duration(data.elapsed_seconds)} · ETA ${duration(data.eta_seconds)} · Errors ${data.errors || 0}`;
+
+      const running = data.status === "running";
+      start.disabled = running;
+      cancel.disabled = !running;
+      if (running && !pollTimer) {
+        pollTimer = setInterval(() => refreshStatus().catch(console.error), 1000);
+      } else if (!running) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+        await loadResults(0);
+      }
+    }
+
+    async function loadResults(offset) {
+      const response = await fetch(`/api/results?offset=${offset}&limit=${pageSize}`);
+      const data = await response.json();
+      if (!response.ok || data.error) throw new Error(data.error || "Failed to load results");
+      resultOffset = data.offset;
+      resultsBody.innerHTML = data.results.map(row => `
+        <tr class="${row.error ? "failed" : ""}">
+          <td>${row.index || ""}</td>
+          <td>${escapeHtml(row.split)}</td>
+          <td>${escapeHtml(row.image)}</td>
+          <td>${number(row.estimated_bpp)}</td>
+          <td>${number(row.zlib_bpp)}</td>
+          <td>${number(row.rans_bpp)}</td>
+          <td>${number(row.rans_residual_bpp)}</td>
+          <td>${Number.isFinite(row.zlib_size_percent) ? `${row.zlib_size_percent.toFixed(2)}%` : "-"}</td>
+          <td>${Number.isFinite(row.rans_size_percent) ? `${row.rans_size_percent.toFixed(2)}%` : "-"}</td>
+          <td>${percent(row.rans_binary_saving_percent)}</td>
+          <td>${Number.isFinite(row.zlib_dna_nt) ? row.zlib_dna_nt.toLocaleString() : "-"}</td>
+          <td>${Number.isFinite(row.rans_dna_nt) ? row.rans_dna_nt.toLocaleString() : "-"}</td>
+          <td>${percent(row.rans_dna_saving_percent)}</td>
+          <td>${number(row.seconds, 2)}</td>
+          <td>${escapeHtml(row.error || (row.rans_roundtrip ? "Exact" : "-"))}</td>
+        </tr>
+      `).join("");
+      const first = data.total ? data.offset + 1 : 0;
+      const last = Math.min(data.offset + data.results.length, data.total);
+      pageInfo.textContent = `${first}-${last} of ${data.total.toLocaleString()}`;
+      previous.disabled = data.offset === 0;
+      next.disabled = data.offset + pageSize >= data.total;
+    }
+
+    start.addEventListener("click", () => {
+      startJob().catch(error => {
+        statusText.textContent = error.message;
+        statusText.className = "error";
+      });
+    });
+    cancel.addEventListener("click", cancelJob);
+    previous.addEventListener("click", () => loadResults(Math.max(0, resultOffset - pageSize)));
+    next.addEventListener("click", () => loadResults(resultOffset + pageSize));
+
+    loadConfig()
+      .then(refreshStatus)
+      .catch(error => {
+        statusText.textContent = error.message;
+        statusText.className = "error";
+      });
+  </script>
+</body>
+</html>

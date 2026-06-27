@@ -106,10 +106,15 @@ python test.py --checkpoint outputs/checkpoints/best.pth --tau 2
 ## Export Example DNA Streams
 
 ```bash
-python test.py --checkpoint outputs/checkpoints/best.pth --tau 2 --export-dna
+python test.py --checkpoint outputs/checkpoints/best.pth --tau 2 --export-dna --residual-codec zlib
+python test.py --checkpoint outputs/checkpoints/best.pth --tau 2 --export-dna --residual-codec rans
+python test.py --checkpoint outputs/checkpoints/best.pth --tau 2 --export-dna --residual-codec both
 ```
 
-The learned entropy model is used during training to optimize the residual bitrate. Exported DNA streams use the current baseline payload path: quantized tensors are packed into compressed NPZ bytes, compressed again with zlib, and then mapped to constrained DNA sequences.
+The default `zlib` path remains backward compatible. The optional `rans` path builds
+per-image, per-channel CDFs from the learned residual entropy model, encodes `q` with
+byte-rANS, and verifies that both `y_hat` and `q` survive an exact round trip before
+writing DNA. Use `--residual-codec both` to export and compare both paths.
 
 ## Visual Viewer
 
@@ -132,3 +137,28 @@ start_viewer.bat
 ```
 
 The page scans `outputs/checkpoints` for `.pth` files and `data/train`, `data/val`, `data/test` for images. It displays the input image, VAE lossy approximation, near-lossless reconstruction, PSNR, MS-SSIM, max error, and bitrate estimates.
+
+## Batch zlib / rANS Comparison
+
+Start the separate batch comparison page:
+
+```bash
+python batch_compare_server.py
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8001
+```
+
+On Windows you can double-click:
+
+```text
+start_batch_compare.bat
+```
+
+Select a checkpoint, dataset split, and `tau`. The background job performs real
+zlib and rANS encoding for every selected image, verifies the rANS round trip,
+shows live aggregate statistics, and writes per-image results to a timestamped
+CSV under `outputs/reports`.
