@@ -46,8 +46,8 @@ def parse_args():
     parser.add_argument("--strategy", choices=["staged", "joint"], default=os.getenv("VAE_TRAIN_STRATEGY", "staged"))
     parser.add_argument("--epochs", type=int, default=int(os.getenv("VAE_EPOCHS", "50")))
     parser.add_argument("--stage1-epochs", type=int, default=int(os.getenv("VAE_STAGE1_EPOCHS", "0")))
-    parser.add_argument("--stage2-epochs", type=int, default=int(os.getenv("VAE_STAGE2_EPOCHS", "25")))
-    parser.add_argument("--stage3-epochs", type=int, default=int(os.getenv("VAE_STAGE3_EPOCHS", "5")))
+    parser.add_argument("--stage2-epochs", type=int, default=int(os.getenv("VAE_STAGE2_EPOCHS", "5")))
+    parser.add_argument("--stage3-epochs", type=int, default=int(os.getenv("VAE_STAGE3_EPOCHS", "0")))
     parser.add_argument("--stage3-lr-factor", type=float, default=float(os.getenv("VAE_STAGE3_LR_FACTOR", "0.05")))
     parser.add_argument("--batch-size", type=int, default=int(os.getenv("VAE_BATCH_SIZE", "16")))
     parser.add_argument("--patch-size", type=int, default=int(os.getenv("VAE_PATCH_SIZE", "256")))
@@ -77,6 +77,8 @@ def parse_args():
     parser.add_argument("--stage1-checkpoint", default=os.getenv("VAE_STAGE1_CHECKPOINT", "outputs/checkpoints/checkpoint_stage1.pth"))
     parser.add_argument("--stage2-checkpoint", default=os.getenv("VAE_STAGE2_CHECKPOINT", "outputs/checkpoints/checkpoint_stage2.pth"))
     parser.add_argument("--resume-stage1", default=os.getenv("VAE_RESUME_STAGE1", ""))
+    parser.add_argument("--resume-stage2", default=os.getenv("VAE_RESUME_STAGE2", ""))
+    parser.add_argument("--resume-stage3", default=os.getenv("VAE_RESUME_STAGE3", ""))
     parser.add_argument("--save-metric", choices=["bpp", "loss", "lossy_psnr"], default=os.getenv("VAE_SAVE_METRIC", "bpp"))
     return parser.parse_args()
 
@@ -284,6 +286,36 @@ def maybe_resume_stage1(model, args, device):
     print(f"resumed stage1 from {resume_path}", flush=True)
 
 
+def maybe_resume_stage2(model, args, device):
+    if not args.resume_stage2:
+        raise ValueError("Stage 2 continuation requires --resume-stage2 when Stage 1 is skipped")
+    resume_path = Path(args.resume_stage2)
+    if not resume_path.exists():
+        raise FileNotFoundError(f"Stage 2 checkpoint does not exist: {resume_path}")
+    load_checkpoint(resume_path, model, map_location=device)
+    print(f"resumed stage2 from {resume_path}", flush=True)
+
+
+def maybe_resume_stage3(model, args, device):
+    if not args.resume_stage3:
+        raise ValueError("Stage 3 requires --resume-stage3 when Stage 2 is skipped")
+    resume_path = Path(args.resume_stage3)
+    if not resume_path.exists():
+        raise FileNotFoundError(f"Stage 3 checkpoint does not exist: {resume_path}")
+    load_checkpoint(resume_path, model, map_location=device)
+    print(f"resumed stage3 from {resume_path}", flush=True)
+
+
+def promote_checkpoint(source_path, destination_path):
+    source_path = Path(source_path)
+    destination_path = Path(destination_path)
+    if source_path.resolve() == destination_path.resolve():
+        return
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source_path, destination_path)
+    print(f"promoted checkpoint {source_path} -> {destination_path}", flush=True)
+
+
 def save_timestamped_checkpoint(checkpoint_path):
     checkpoint_path = Path(checkpoint_path)
     if not checkpoint_path.exists():
@@ -323,27 +355,41 @@ def main():
     train_loader = make_loader(args.data_root, "train", args, training=True)
     val_loader = make_loader(args.data_root, "val", args, training=False)
     model = make_model(args, device)
-    maybe_resume_stage1(model, args, device)
 
     if args.strategy == "joint":
+        maybe_resume_stage1(model, args, device)
         train_stage(model, train_loader, val_loader, device, args, "joint", args.epochs, args.lr, args.checkpoint)
         save_timestamped_checkpoint(args.checkpoint)
         return
 
-    train_stage(model, train_loader, val_loader, device, args, "stage1", args.stage1_epochs, args.lr, args.stage1_checkpoint)
-    train_stage(model, train_loader, val_loader, device, args, "stage2", args.stage2_epochs, args.lr, args.stage2_checkpoint)
-    train_stage(
-        model,
-        train_loader,
-        val_loader,
-        device,
-        args,
-        "stage3",
-        args.stage3_epochs,
-        args.lr * args.stage3_lr_factor,
-        args.checkpoint,
-    )
-    save_timestamped_checkpoint(args.checkpoint)
+    if args.stage1_epochs > 0:
+        maybe_resume_stage1(model, args, device)
+    elif args.stage2_epochs > 0:
+        maybe_resume_stage2(model, args, device)
+    if args.stage1_epochs > 0:
+        train_stage(model, train_loader, val_loader, device, args, "stage1", args.stage1_epochs, args.lr, args.stage1_checkpoint)
+    if args.stage2_epochs > 0:
+        train_stage(model, train_loader, val_loader, device, args, "stage2", args.stage2_epochs, args.lr, args.stage2_checkpoint)
+    elif args.stage3_epochs > 0:
+        maybe_resume_stage3(model, args, device)
+    if args.stage3_epochs > 0:
+        train_stage(
+            model,
+            train_loader,
+            val_loader,
+            device,
+            args,
+            "stage3",
+            args.stage3_epochs,
+            args.lr * args.stage3_lr_factor,
+            args.checkpoint,
+        )
+    elif args.stage2_epochs > 0:
+        promote_checkpoint(args.stage2_checkpoint, args.checkpoint)
+    elif args.stage1_epochs > 0:
+        promote_checkpoint(args.stage1_checkpoint, args.checkpoint)
+    if args.stage1_epochs > 0 or args.stage2_epochs > 0 or args.stage3_epochs > 0:
+        save_timestamped_checkpoint(args.checkpoint)
 
 
 if __name__ == "__main__":

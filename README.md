@@ -37,7 +37,7 @@ test:  110
 ## Train
 
 ```bash
-python train.py --strategy staged --stage1-epochs 0 --stage2-epochs 25 --stage3-epochs 5 --batch-size 16 --patch-size 256 --tau 5
+python train.py --strategy staged --stage1-epochs 0 --stage2-epochs 5 --stage3-epochs 0 --batch-size 16 --patch-size 256 --tau 5 --resume-stage2 outputs/checkpoints/best.pth
 ```
 
 The default training strategy is staged:
@@ -74,8 +74,8 @@ Common environment variables:
 VAE_EPOCHS=50
 VAE_TRAIN_STRATEGY=staged
 VAE_STAGE1_EPOCHS=0
-VAE_STAGE2_EPOCHS=25
-VAE_STAGE3_EPOCHS=5
+VAE_STAGE2_EPOCHS=5
+VAE_STAGE3_EPOCHS=0
 VAE_STAGE3_LR_FACTOR=0.05
 VAE_BATCH_SIZE=16
 VAE_PATCH_SIZE=256
@@ -90,6 +90,8 @@ VAE_STAGE1_LATENT_WEIGHT=0.05
 VAE_CHECKPOINT=outputs/checkpoints/best.pth
 VAE_STAGE1_CHECKPOINT=outputs/checkpoints/checkpoint_stage1.pth
 VAE_STAGE2_CHECKPOINT=outputs/checkpoints/checkpoint_stage2.pth
+VAE_RESUME_STAGE2=outputs/checkpoints/best.pth
+VAE_RESUME_STAGE3=outputs/checkpoints/best.pth
 VAE_LOG_INTERVAL=20
 VAE_RESIDUAL_CONDITION_CHANNELS=16
 VAE_RESIDUAL_EXTRA_BLOCKS=1
