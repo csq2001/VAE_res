@@ -16,7 +16,7 @@ from PIL import Image
 from models import VaeResidualCodec
 from utils.bitstream import pack_tensors, payload_to_dna, unpack_tensors
 from utils.dataset import CTImageDataset
-from utils.metrics import bits_per_pixel, max_abs_error_pixels, ms_ssim, psnr
+from utils.metrics import bits_per_pixel, max_abs_error_pixels, ms_ssim, psnr, ssim
 
 
 ROOT = Path(__file__).resolve().parent
@@ -196,6 +196,7 @@ def evaluate(params):
             "tau": tau,
             "metrics": {
                 "psnr": psnr(x, out.x_hat),
+                "ssim": ssim(x, out.x_hat).item(),
                 "ms_ssim": ms_ssim(x, out.x_hat),
                 "max_error": max_abs_error_pixels(x, out.x_hat),
                 "latent_bpp": latent_bpp,

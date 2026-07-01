@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 
 class ResidualEntropyModel(nn.Module):
-    """Predicts p(q | x_tilde, latent condition) for quantized residual symbols."""
+    """Predicts residual symbols with optional two-pass checkerboard context."""
 
     def __init__(
         self,
@@ -13,11 +13,13 @@ class ResidualEntropyModel(nn.Module):
         hidden: int = 96,
         max_q: int = 64,
         extra_blocks: int = 1,
+        checkerboard_context: bool = True,
     ) -> None:
         super().__init__()
         self.channels = channels
         self.max_q = max_q
         self.num_symbols = 2 * max_q + 1
+        self.checkerboard_context = checkerboard_context
         layers = [
             nn.Conv2d(channels + condition_channels, hidden, 5, padding=2),
             nn.LeakyReLU(0.1, inplace=True),
@@ -30,11 +32,48 @@ class ResidualEntropyModel(nn.Module):
             layers.extend([nn.Conv2d(hidden, hidden, 3, padding=1), nn.LeakyReLU(0.1, inplace=True)])
         layers.append(nn.Conv2d(hidden, channels * self.num_symbols, 1))
         self.net = nn.Sequential(*layers)
+        self.context_net = (
+            nn.Sequential(
+                nn.Conv2d(channels + 1, hidden, 5, padding=2),
+                nn.LeakyReLU(0.1, inplace=True),
+                nn.Conv2d(hidden, hidden, 3, padding=1),
+                nn.LeakyReLU(0.1, inplace=True),
+                nn.Conv2d(hidden, hidden, 3, padding=1),
+            )
+            if checkerboard_context
+            else None
+        )
 
-    def forward(self, x_tilde: torch.Tensor, condition: torch.Tensor | None = None) -> torch.Tensor:
-        if condition is None:
-            return self.net(x_tilde)
-        return self.net(torch.cat([x_tilde, condition], dim=1))
+    @staticmethod
+    def anchor_mask(reference: torch.Tensor) -> torch.Tensor:
+        height, width = reference.shape[-2:]
+        rows = torch.arange(height, device=reference.device).view(height, 1)
+        columns = torch.arange(width, device=reference.device).view(1, width)
+        return ((rows + columns) % 2 == 0).to(reference.dtype).view(1, 1, height, width)
+
+    def forward(
+        self,
+        x_tilde: torch.Tensor,
+        condition: torch.Tensor | None = None,
+        q: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        inputs = x_tilde if condition is None else torch.cat([x_tilde, condition], dim=1)
+        if not self.checkerboard_context:
+            return self.net(inputs)
+        if q is None:
+            raise ValueError("q is required when checkerboard context is enabled")
+
+        features = inputs
+        for layer in list(self.net.children())[:-1]:
+            features = layer(features)
+
+        anchor_mask = self.anchor_mask(q)
+        nonanchor_mask = 1.0 - anchor_mask
+        q_anchors = q * anchor_mask / float(max(self.max_q, 1))
+        expanded_mask = anchor_mask.expand(q.shape[0], -1, -1, -1)
+        context = self.context_net(torch.cat([q_anchors, expanded_mask], dim=1))
+        features = features + context * nonanchor_mask
+        return self.net[-1](features)
 
     def symbols_to_targets(self, q: torch.Tensor) -> torch.Tensor:
         return (q.clamp(-self.max_q, self.max_q) + self.max_q).long()

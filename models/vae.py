@@ -59,6 +59,7 @@ class VaeResidualCodec(nn.Module):
         residual_extra_blocks: int = 1,
         max_q: int = 64,
         latent_quant_step: float = 1.0,
+        checkerboard_context: bool = True,
     ) -> None:
         super().__init__()
         self.in_channels = in_channels
@@ -81,6 +82,7 @@ class VaeResidualCodec(nn.Module):
             hidden=residual_hidden,
             max_q=max_q,
             extra_blocks=residual_extra_blocks,
+            checkerboard_context=checkerboard_context,
         )
 
     def quantize_latent(self, y: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
@@ -111,7 +113,7 @@ class VaeResidualCodec(nn.Module):
         if self.residual_condition is not None:
             condition = self.residual_condition(y_hat)
             condition = F.interpolate(condition, size=x_tilde.shape[-2:], mode="bilinear", align_corners=False)
-        residual_logits = self.residual_entropy(x_tilde, condition)
+        residual_logits = self.residual_entropy(x_tilde, condition, q=q)
         latent_bits = self.prior.rate_bits(y_hat, self.latent_quant_step)
         residual_bits = self.residual_entropy.rate_bits(residual_logits, q)
         return CodecOutput(x_tilde, x_hat, y, y_hat, q, latent_bits, residual_bits, residual_logits)

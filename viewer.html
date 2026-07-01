@@ -146,6 +146,7 @@
     <div id="status" class="status"></div>
     <section class="metrics">
       <div class="metric"><span>PSNR</span><strong id="psnr">-</strong></div>
+      <div class="metric"><span>SSIM</span><strong id="ssim">-</strong></div>
       <div class="metric"><span>MS-SSIM</span><strong id="msssim">-</strong></div>
       <div class="metric"><span>Max Error</span><strong id="maxerr">-</strong></div>
       <div class="metric"><span>Estimated Total bpp</span><strong id="bpp">-</strong></div>
@@ -215,6 +216,7 @@
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data.error || "Evaluation failed");
         document.getElementById("psnr").textContent = data.metrics.psnr.toFixed(2);
+        document.getElementById("ssim").textContent = data.metrics.ssim.toFixed(4);
         document.getElementById("msssim").textContent = data.metrics.ms_ssim.toFixed(4);
         document.getElementById("maxerr").textContent = data.metrics.max_error.toFixed(0);
         document.getElementById("bpp").textContent = data.metrics.total_bpp.toFixed(4);
