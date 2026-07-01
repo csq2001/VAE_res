@@ -71,19 +71,24 @@ class ConstrainedDNAEncoder:
     def decode(self, sequence: str, bit_length: int) -> bytes:
         bits = []
         prefix = []
+        decoded_bit_count = 0
         for base in sequence:
             legal = self._legal_bases(prefix)
             if base not in legal:
                 raise ValueError(f"Illegal base {base!r} for current DNA state")
             index = legal.index(base)
             if len(legal) >= 4:
-                bits.append(f"{index:02b}")
+                part = f"{index:02b}"
             elif len(legal) == 3:
-                bits.append("0" if index == 0 else ("10" if index == 1 else "11"))
+                part = "0" if index == 0 else ("10" if index == 1 else "11")
             elif len(legal) == 2:
-                bits.append(str(index))
+                part = str(index)
+            else:
+                part = ""
+            bits.append(part)
+            decoded_bit_count += len(part)
             prefix.append(base)
-            if sum(len(part) for part in bits) >= bit_length:
+            if decoded_bit_count >= bit_length:
                 break
         bitstream = "".join(bits)[:bit_length]
         return bits_to_bytes(bitstream)

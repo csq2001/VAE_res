@@ -140,6 +140,72 @@ start_viewer.bat
 
 The page scans `outputs/checkpoints` for `.pth` files and `data/train`, `data/val`, `data/test` for images. It displays the input image, VAE lossy approximation, near-lossless reconstruction, PSNR, MS-SSIM, max error, and bitrate estimates.
 
+## Block dual-stream DNA codec
+
+The optional block codec keeps the existing `VaeResidualCodec` unchanged and
+adds independently recoverable latent/residual enhancement tiles:
+
+```text
+image -> one full-image VAE pass -> global latent + quantized residual
+      latent -> 4x4x32 tiles -> edit code + CRC32 -> tile RS(8+3)
+      residual q -> 16x16 tiles -> importance-adaptive edit/compact payload
+```
+
+Both tile types are compressed independently with zlib and do not use periodic
+Markers. Their length-7 DNA inner code has minimum Levenshtein distance three,
+so it corrects one substitution, insertion, or deletion in each codeword.
+Multiple edits can be corrected when they fall in different codewords. CRC
+rejects ambiguous or more heavily damaged tiles.
+
+Every eight latent data tiles receive three systematic GF(256) parity tiles.
+Tiles rejected by the inner edit code or CRC are recovered as erasures when no
+more than three shards in their group are unavailable. Residual addresses keep
+the edit code. High-energy residual payloads keep the full edit code, while
+low-energy payloads use a compact two-bit-per-base mapping. Compact-payload
+edits are detected by length and CRC and fall back locally instead of incurring
+full edit-code redundancy.
+
+The image is padded to a multiple of eight before the fully convolutional VAE
+pass and cropped back to its original size after decoding. Tile coordinates
+are global; the VAE itself no longer runs independently on 64x64 image blocks.
+
+Run the no-error example:
+
+```bash
+python block_dna_example.py
+```
+
+Inject low-rate DNA edits:
+
+```bash
+python block_dna_example.py --substitution-rate 0.000001 --insertion-rate 0.0000005 --deletion-rate 0.0000005
+```
+
+An uncorrectable latent tile is replaced by the rounded learned latent prior;
+other latent tiles remain usable. An uncorrectable residual tile is dropped
+locally: its `q` values become zero, so that region falls back to the VAE lossy
+reconstruction instead of aborting the whole image.
+
+Start the visual error-correction demonstration with
+`start_block_dna_viewer.bat`, or run:
+
+```bash
+python block_dna_server.py
+```
+
+Then open `http://127.0.0.1:8003`.
+
+`reedsolo` is detected when installed and remains available for optional
+within-packet symbol coding. Cross-packet erasure recovery uses the bundled
+systematic GF(256) implementation, so this feature has no required third-party
+dependency.
+
+Run its tests:
+
+```bash
+python -m pytest tests/test_block_dna_codec.py -q
+```
+
 ## Batch zlib / rANS Comparison
 
 Start the separate batch comparison page:
