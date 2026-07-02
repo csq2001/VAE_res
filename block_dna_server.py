@@ -15,6 +15,7 @@ os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 import torch
 
+from models import LatentInpainter
 from utils.dna_channel import DNAChannelConfig, simulate_dna_channel
 from utils.ecc_rs import RSConfig
 from utils.marker_code import MarkerConfig
@@ -40,6 +41,18 @@ DATA_ROOT = ROOT / "data"
 VIEWER_HTML = ROOT / "block_dna_viewer.html"
 MODEL_LOCK = threading.Lock()
 MODEL_CACHE: dict[tuple[str, str], torch.nn.Module] = {}
+INPAINTER_CACHE: dict[tuple[str, str], LatentInpainter] = {}
+INPAINTER_ROOT = ROOT / "outputs" / "checkpoints"
+
+
+def list_inpainter_checkpoints() -> list[str]:
+    if not INPAINTER_ROOT.exists():
+        return []
+    return sorted(
+        path.relative_to(ROOT).as_posix()
+        for path in INPAINTER_ROOT.glob("latent_inpainter_*.pth")
+        if path.is_file()
+    )
 
 
 def _number(value: float) -> float | None:
@@ -79,6 +92,28 @@ def _load_model(checkpoint: Path, device: torch.device) -> torch.nn.Module:
     return MODEL_CACHE[key]
 
 
+def _load_inpainter(
+    checkpoint: Path,
+    device: torch.device,
+) -> LatentInpainter:
+    key = (str(checkpoint), str(device))
+    if key not in INPAINTER_CACHE:
+        saved = torch.load(checkpoint, map_location=device)
+        config = saved["config"]
+        model = LatentInpainter(
+            latent_channels=int(config["latent_channels"]),
+            channel_group=int(config["channel_group"]),
+            hidden_channels=int(config.get("hidden_channels", 128)),
+            context_channels=int(config.get("context_channels", 192)),
+            quant_step=float(config.get("quant_step", 1.0)),
+        ).to(device)
+        model.load_state_dict(saved["model"])
+        model.eval()
+        model.trained_tile_size = int(config.get("tile_size", 4))
+        INPAINTER_CACHE[key] = model
+    return INPAINTER_CACHE[key]
+
+
 def _error_visual(reference: torch.Tensor, decoded: torch.Tensor) -> str:
     error = (reference.detach().cpu() - decoded.detach().cpu()).abs()
     intensity = error.max(dim=1, keepdim=True).values
@@ -102,10 +137,13 @@ def evaluate(params: dict) -> dict:
     started = time.perf_counter()
     image_name = str(params.get("image", ""))
     checkpoint_name = str(params.get("checkpoint", ""))
+    inpainter_name = str(params.get("latent_inpainter_checkpoint", ""))
     if image_name not in {entry["path"] for entry in list_images()}:
         raise ValueError("Unknown image")
     if checkpoint_name not in set(list_checkpoints()):
         raise ValueError("Unknown checkpoint")
+    if inpainter_name and inpainter_name not in set(list_inpainter_checkpoints()):
+        raise ValueError("Unknown latent inpainter checkpoint")
 
     block_size = _bounded_int(params, "block_size", 64, 16, 512)
     if block_size % 8:
@@ -139,9 +177,22 @@ def evaluate(params: dict) -> dict:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     image_path = resolve_under(DATA_ROOT, image_name)
     checkpoint_path = resolve_under(ROOT, checkpoint_name)
+    inpainter_path = (
+        resolve_under(ROOT, inpainter_name) if inpainter_name else None
+    )
 
     with MODEL_LOCK:
         model = _load_model(checkpoint_path, device)
+        inpainter = (
+            _load_inpainter(inpainter_path, device)
+            if inpainter_path is not None
+            else None
+        )
+        if inpainter is not None and (
+            inpainter.channel_group != latent_channel_group
+            or getattr(inpainter, "trained_tile_size", 4) != latent_spatial_size
+        ):
+            inpainter = None
         image = image_to_tensor(image_path, model.in_channels).to(device)
         codec = BlockDNACodec(
             model,
@@ -156,6 +207,7 @@ def evaluate(params: dict) -> dict:
                 channel_group=latent_channel_group,
             ),
             residual_tile_config=ResidualTileConfig(tile_size=residual_tile_size),
+            latent_inpainter=inpainter,
         )
 
         encode_started = time.perf_counter()
@@ -223,6 +275,11 @@ def evaluate(params: dict) -> dict:
         else sum(block.latent_corrected_codewords for block in decoded.blocks)
     )
     dropped_latent_tiles = sum(report.erasures for report in latent_reports)
+    predicted_latent_tiles = (
+        0
+        if decoded is None
+        else sum(block.latent_predicted_tiles for block in decoded.blocks)
+    )
     corrected_residual_tiles = sum(
         report.recovered_data_packets for report in residual_reports
     )
@@ -259,6 +316,10 @@ def evaluate(params: dict) -> dict:
             "residual_tile_size": residual_tile_size,
             "latent_spatial_size": latent_spatial_size,
             "latent_channel_group": latent_channel_group,
+            "latent_inpainter": inpainter is not None,
+            "latent_inpainter_checkpoint": (
+                inpainter_name if inpainter is not None else ""
+            ),
             "rs_data": rs_data,
             "rs_parity": rs_parity,
         },
@@ -291,6 +352,7 @@ def evaluate(params: dict) -> dict:
             "corrected_latent_tiles": recovered_packets,
             "corrected_latent_codewords": corrected_latent_codewords,
             "dropped_latent_tiles": dropped_latent_tiles,
+            "predicted_latent_tiles": predicted_latent_tiles,
             "latent_tiles": sum(
                 packet.header.stream_type == StreamType.LATENT
                 and not packet.header.is_parity
@@ -357,16 +419,29 @@ class BlockDNAHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/config":
             checkpoints = list_checkpoints()
+            inpainter_checkpoints = list_inpainter_checkpoints()
             json_response(
                 self,
                 {
                     "images": list_images(),
                     "checkpoints": checkpoints,
+                    "latent_inpainter_checkpoints": inpainter_checkpoints,
                     "device": "cuda" if torch.cuda.is_available() else "cpu",
+                    "latent_inpainter_available": bool(inpainter_checkpoints),
                     "defaults": {
                         "checkpoint": next(
                             (item for item in checkpoints if "stage1" in item.lower()),
                             checkpoints[-1] if checkpoints else "",
+                        ),
+                        "latent_inpainter_checkpoint": next(
+                            (
+                                item
+                                for item in inpainter_checkpoints
+                                if item.endswith("latent_inpainter_best.pth")
+                            ),
+                            inpainter_checkpoints[-1]
+                            if inpainter_checkpoints
+                            else "",
                         ),
                         "block_size": 64,
                         "tau": 5,

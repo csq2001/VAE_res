@@ -147,7 +147,7 @@ adds independently recoverable latent/residual enhancement tiles:
 
 ```text
 image -> one full-image VAE pass -> global latent + quantized residual
-      latent -> 4x4x32 tiles -> edit code + CRC32 -> tile RS(8+3)
+      latent -> 4x4x32 tiles -> edit code + CRC32 -> tile RS(8+4)
       residual q -> 16x16 tiles -> importance-adaptive edit/compact payload
 ```
 
@@ -157,9 +157,9 @@ so it corrects one substitution, insertion, or deletion in each codeword.
 Multiple edits can be corrected when they fall in different codewords. CRC
 rejects ambiguous or more heavily damaged tiles.
 
-Every eight latent data tiles receive three systematic GF(256) parity tiles.
+Every eight latent data tiles receive four systematic GF(256) parity tiles.
 Tiles rejected by the inner edit code or CRC are recovered as erasures when no
-more than three shards in their group are unavailable. Residual addresses keep
+more than four shards in their group are unavailable. Residual addresses keep
 the edit code. High-energy residual payloads keep the full edit code, while
 low-energy payloads use a compact two-bit-per-base mapping. Compact-payload
 edits are detected by length and CRC and fall back locally instead of incurring
@@ -205,6 +205,57 @@ Run its tests:
 ```bash
 python -m pytest tests/test_block_dna_codec.py -q
 ```
+
+## Export lossy and residual image datasets
+
+Decompose every image under `data/train`, `data/val`, and `data/test` with
+`outputs/checkpoints/best.pth`:
+
+```bash
+python export_lossy_residual.py
+```
+
+Windows users can double-click `export_lossy_residual.bat`. Results preserve
+the source split and relative path:
+
+```text
+outputs/best_decomposition/
+  lossy/train/...png
+  residual/train/...png
+  residual/train/...npz
+```
+
+Residual PNG files are centered visualizations where 128 means zero. The NPZ
+files store exact signed `int16` HWC residuals under the `residual` key, so the
+original integer pixels can be reconstructed as `lossy + residual`. Existing complete outputs are
+skipped unless `--overwrite` is supplied.
+
+## Train the latent error inpainter
+
+Train the mask-aware gated latent U-Net on top of the frozen
+`outputs/checkpoints/best.pth` codec:
+
+```bash
+python train_latent_inpainter.py
+```
+
+On Windows, double-click `train_latent_inpainter.bat`. The VAE encoder,
+decoder, prior, and residual model remain frozen. Training generates isolated,
+spatial-burst, and RS(8+4)-overflow masks. The best model is saved as:
+
+```text
+outputs/checkpoints/latent_inpainter_best.pth
+```
+
+The optimized defaults use 20 epochs, 256x256 crops, batch size 8, CUDA AMP,
+TF32, a 96/128-channel repair network, and image-domain losses every four
+training batches. Latent supervision is still evaluated on every batch.
+Validation uses 32 batches per epoch. A short 512x512 fine-tuning run can be
+performed after the default training if full-resolution refinement is needed.
+
+The block DNA viewer loads this checkpoint automatically when its 4x4 spatial
+tile and 32-channel group configuration matches the trained model. Before that
+checkpoint exists, decoding safely keeps the prior-value fallback.
 
 ## Batch zlib / rANS Comparison
 

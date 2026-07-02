@@ -103,6 +103,7 @@ def list_checkpoints():
     return [
         str(path.relative_to(ROOT)).replace("\\", "/")
         for path in sorted(CHECKPOINT_ROOT.rglob("*.pth"))
+        if not path.name.startswith("latent_inpainter_")
     ]
 
 

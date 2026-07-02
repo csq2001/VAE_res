@@ -63,6 +63,7 @@
       <h2>编码与信道参数</h2>
       <div class="control"><label for="image">输入图像</label><select id="image"></select></div>
       <div class="control"><label for="checkpoint">模型检查点</label><select id="checkpoint"></select></div>
+      <div class="control"><label for="latent_inpainter_checkpoint">Latent 修复模型</label><select id="latent_inpainter_checkpoint"></select></div>
       <div class="row">
         <div class="control"><label>VAE编码范围</label><input value="整图（自动pad到8倍数）" disabled></div>
         <div class="control"><label for="residual_tile_size">残差 Tile</label><select id="residual_tile_size"><option>8</option><option selected>16</option><option>32</option></select></div>
@@ -84,7 +85,7 @@
         <div class="control"><label for="seed">随机种子</label><input id="seed" type="number" min="0" value="42"></div>
       </div>
       <button id="run">压缩、加错并纠错解码</button>
-      <p class="hint">Latent使用完整编辑内码、CRC和RS(8+3)；高能量残差保留编辑内码，低能量残差使用紧凑payload+CRC，失败后局部q=0。</p>
+      <p class="hint">Latent使用完整编辑内码、CRC和RS(8+4)；高能量残差保留编辑内码，低能量残差使用紧凑payload+CRC，失败后局部q=0。</p>
     </aside>
     <main>
       <div class="status panel" id="status"><span>选择参数后开始实验。</span><span>—</span></div>
@@ -105,6 +106,10 @@ async function init(){
     $("image").innerHTML = cfg.images.map(x=>`<option value="${x.path}">[${x.split}] ${x.name}</option>`).join("");
     $("checkpoint").innerHTML = cfg.checkpoints.map(x=>`<option value="${x}">${x}</option>`).join("");
     $("checkpoint").value = cfg.defaults.checkpoint;
+    $("latent_inpainter_checkpoint").innerHTML =
+      `<option value="">不使用 Latent 修复模型</option>` +
+      (cfg.latent_inpainter_checkpoints || []).map(x=>`<option value="${x}">${x}</option>`).join("");
+    $("latent_inpainter_checkpoint").value = cfg.defaults.latent_inpainter_checkpoint || "";
     if(!cfg.images.length || !cfg.checkpoints.length) $("status").innerHTML="<span>未找到图像或 checkpoint。</span><span>配置不完整</span>";
   } catch(e) { showError(`无法连接后端：${e.message}`); }
 }
@@ -115,6 +120,7 @@ function showError(message){
 function parameters(){
   return {
     image:value("image"), checkpoint:value("checkpoint"),
+    latent_inpainter_checkpoint:value("latent_inpainter_checkpoint"),
     tau:+value("tau"), residual_tile_size:+value("residual_tile_size"), residual_codec:value("residual_codec"),
     latent_spatial_size:+value("latent_spatial_size"), latent_channel_group:+value("latent_channel_group"),
     substitution_rate:+value("substitution_rate"), insertion_rate:+value("insertion_rate"),
@@ -136,8 +142,9 @@ function render(r){
       ${metric("碱基错误",ch.total_errors,`${ch.substitutions} S · ${ch.insertions} I · ${ch.deletions} D`)}
       ${metric("检测到的 erasure",rec.erasures,`${ch.damaged_packets} 条序列被注入错误`)}
       ${metric("Latent 内码纠错",rec.corrected_latent_tiles,`${rec.corrected_latent_codewords} 个 S/I/D 码字`)}
-      ${metric("Latent RS 恢复",rec.rs_recovered_packets,"RS(8 data + 3 parity)")}
-      ${metric("丢弃 Latent Tile",rec.dropped_latent_tiles,"使用先验 latent 局部降级")}
+      ${metric("Latent RS 恢复",rec.rs_recovered_packets,"RS(8 data + 4 parity)")}
+      ${metric("Latent 神经修复",rec.predicted_latent_tiles,rec.predicted_latent_tiles?"Inpainter预测缺失位置":"无RS超限tile")}
+      ${metric("缺失 Latent Tile",rec.dropped_latent_tiles,r.codec.latent_inpainter?"已送入修复网络":"使用prior局部降级")}
       ${metric("残差地址纠错",rec.corrected_residual_tiles,`${rec.corrected_residual_codewords} 个地址码字`)}
       ${metric("丢弃残差 Tile",rec.dropped_residual_tiles,`${fmt(rec.degraded_pixel_percent)}% 像素退化为 x̃`)}
       ${metric("无错重建 PSNR",`${fmt(q.clean.psnr)} dB`,`maxerr ${fmt(q.clean.maxerr)}`)}
