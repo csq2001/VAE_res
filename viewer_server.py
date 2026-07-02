@@ -166,29 +166,14 @@ def evaluate(params):
         original_bits = pixels * int(x.shape[1]) * 8
 
         zlib_payload = pack_tensors(y_hat, q, metadata, residual_codec="zlib")
-        rans_payload = pack_tensors(
-            y_hat,
-            q,
-            metadata,
-            residual_codec="rans",
-            residual_logits=out.residual_logits.cpu(),
-            max_q=model.residual_entropy.max_q,
-            checkerboard_context=model.residual_entropy.checkerboard_context,
-        )
-        decoded_y, decoded_q, rans_metadata = unpack_tensors(rans_payload)
+        decoded_y, decoded_q, _ = unpack_tensors(zlib_payload)
         if not torch.equal(torch.round(y_hat), decoded_y):
-            raise RuntimeError("rANS latent round-trip verification failed")
+            raise RuntimeError("zlib latent round-trip verification failed")
         if not torch.equal(torch.round(q), decoded_q):
-            raise RuntimeError("rANS residual round-trip verification failed")
+            raise RuntimeError("zlib residual round-trip verification failed")
 
         zlib_dna = payload_to_dna(zlib_payload)
-        rans_dna = payload_to_dna(rans_payload)
         zlib_payload_bits = len(zlib_payload) * 8
-        rans_payload_bits = len(rans_payload) * 8
-        rans_residual_bits = int(rans_metadata["rans_payload_bytes"]) * 8
-        rans_saving_percent = (
-            (len(zlib_payload) - len(rans_payload)) / max(len(zlib_payload), 1) * 100.0
-        )
         return {
             "device": str(device),
             "image": image_rel,
@@ -206,13 +191,8 @@ def evaluate(params):
                 "zlib_payload_bytes": len(zlib_payload),
                 "zlib_actual_bpp": zlib_payload_bits / pixels,
                 "zlib_dna_nt": len(zlib_dna.dna),
-                "rans_payload_bytes": len(rans_payload),
-                "rans_actual_bpp": rans_payload_bits / pixels,
-                "rans_residual_bpp": rans_residual_bits / pixels,
-                "rans_dna_nt": len(rans_dna.dna),
-                "rans_saving_percent": rans_saving_percent,
-                "rans_compression_percent": rans_payload_bits / original_bits * 100.0,
-                "rans_roundtrip": True,
+                "zlib_compression_percent": zlib_payload_bits / original_bits * 100.0,
+                "zlib_roundtrip": True,
             },
             "images": {
                 "input": tensor_to_data_url(x),

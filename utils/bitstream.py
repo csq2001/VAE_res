@@ -10,7 +10,6 @@ import numpy as np
 import torch
 
 from .dna_constraints import ConstrainedDNAEncoder, dna_stats
-from .rans_codec import decode_residual, encode_residual
 
 
 @dataclass
@@ -48,6 +47,8 @@ def pack_tensors(
             q=torch.round(q).cpu().clamp(-128, 127).to(torch.int8).numpy(),
         )
     elif residual_codec == "rans":
+        from .rans_codec import encode_residual
+
         if residual_logits is None:
             raise ValueError("residual_logits are required for rANS encoding")
         rans_payload, cdfs = encode_residual(
@@ -87,6 +88,8 @@ def unpack_tensors(payload: bytes) -> tuple[torch.Tensor, torch.Tensor, dict]:
         if residual_codec == "zlib":
             q = torch.from_numpy(data["q"].astype(np.float32))
         elif residual_codec == "rans":
+            from .rans_codec import decode_residual
+
             rans_payload = data["residual_rans"].astype(np.uint8, copy=False).tobytes()
             cdfs = data["residual_cdfs"].astype(np.int32, copy=False)
             q_shape = tuple(int(value) for value in data["q_shape"].tolist())

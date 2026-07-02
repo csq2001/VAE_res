@@ -154,13 +154,10 @@
       <div class="metric"><span>Estimated Residual bpp</span><strong id="residual">-</strong></div>
       <div class="metric"><span>Estimated Size</span><strong id="compression">-</strong></div>
       <div class="metric"><span>zlib Actual bpp</span><strong id="zlib-bpp">-</strong></div>
-      <div class="metric"><span>rANS Actual bpp</span><strong id="rans-bpp">-</strong></div>
-      <div class="metric"><span>rANS Residual bpp</span><strong id="rans-residual-bpp">-</strong></div>
-      <div class="metric"><span>rANS Size</span><strong id="rans-size">-</strong></div>
-      <div class="metric"><span>rANS vs zlib</span><strong id="rans-saving">-</strong></div>
+      <div class="metric"><span>zlib Payload</span><strong id="zlib-payload">-</strong></div>
+      <div class="metric"><span>zlib Size</span><strong id="zlib-size">-</strong></div>
       <div class="metric"><span>zlib DNA Length</span><strong id="zlib-dna">-</strong></div>
-      <div class="metric"><span>rANS DNA Length</span><strong id="rans-dna">-</strong></div>
-      <div class="metric"><span>rANS Round-trip</span><strong id="rans-roundtrip">-</strong></div>
+      <div class="metric"><span>zlib Round-trip</span><strong id="zlib-roundtrip">-</strong></div>
     </section>
     <section class="grid">
       <article class="image-panel">
@@ -224,14 +221,10 @@
         document.getElementById("residual").textContent = data.metrics.residual_bpp.toFixed(4);
         document.getElementById("compression").textContent = `${data.metrics.compression_percent.toFixed(2)}%`;
         document.getElementById("zlib-bpp").textContent = data.metrics.zlib_actual_bpp.toFixed(4);
-        document.getElementById("rans-bpp").textContent = data.metrics.rans_actual_bpp.toFixed(4);
-        document.getElementById("rans-residual-bpp").textContent = data.metrics.rans_residual_bpp.toFixed(4);
-        document.getElementById("rans-size").textContent = `${data.metrics.rans_compression_percent.toFixed(2)}%`;
-        const saving = data.metrics.rans_saving_percent;
-        document.getElementById("rans-saving").textContent = `${saving >= 0 ? "+" : ""}${saving.toFixed(2)}%`;
+        document.getElementById("zlib-payload").textContent = `${data.metrics.zlib_payload_bytes.toLocaleString()} bytes`;
+        document.getElementById("zlib-size").textContent = `${data.metrics.zlib_compression_percent.toFixed(2)}%`;
         document.getElementById("zlib-dna").textContent = `${data.metrics.zlib_dna_nt.toLocaleString()} nt`;
-        document.getElementById("rans-dna").textContent = `${data.metrics.rans_dna_nt.toLocaleString()} nt`;
-        document.getElementById("rans-roundtrip").textContent = data.metrics.rans_roundtrip ? "Exact" : "Failed";
+        document.getElementById("zlib-roundtrip").textContent = data.metrics.zlib_roundtrip ? "Exact" : "Failed";
         document.getElementById("input").src = data.images.input;
         document.getElementById("lossy").src = data.images.lossy;
         document.getElementById("residual-image").src = data.images.residual;
